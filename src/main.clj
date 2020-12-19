@@ -91,13 +91,15 @@
                           step 0]
                      (let [before (time/now)
                            new-data (run-step client data)
-                           after (time/now)]
-                       (println (format "Step %s/%s (%sms): %s (%s) artists, %s (%s) albums in frontier; %s artists, %s albums processed"
+                           after (time/now)
+                           expected-steps (int (max (/ (-> new-data :frontier :artists count)
+                                                       (key->step-size :artists))
+                                                    (/ (-> new-data :frontier :albums count)
+                                                       (key->step-size :albums))))]
+                       (println (format "Step %s/%s (%s%%) (%sms): %s (%s) artists, %s (%s) albums in frontier; %s artists, %s albums processed"
                                         step
-                                        (int (max (/ (-> new-data :frontier :artists count)
-                                                     (key->step-size :artists))
-                                                  (/ (-> new-data :frontier :albums count)
-                                                     (key->step-size :albums))))
+                                        expected-steps
+                                        (float (/ (Math/round (* 100 100 (float (/ step expected-steps)))) 100))
                                         (time/milliseconds-ago before after)
                                         (-> new-data :frontier :artists count)
                                         (format-diff (- (-> new-data :frontier :artists count)
