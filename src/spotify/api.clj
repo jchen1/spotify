@@ -2,9 +2,9 @@
   (:require [cheshire.core :as json]
             [clojure.string :as string]
             [http :as http]
+            [spotify.cache :as c]
+            [spotify.common :refer [base-url]]
             [time :as time]))
-
-(def base-url "https://api.spotify.com/v1")
 
 (defn- refresh
   [{:keys [id secret] :as client}]
@@ -25,13 +25,20 @@
 
 (defn- request
   ([client url] (request client url {}))
-  ([client url opts]
-   (let [_ (maybe-refresh-client! client)
-         url (if (string/starts-with? url "http") url (str base-url url))]
-     (-> (http/get url (merge {:bearer-auth (-> client :token deref :token)}
-                              opts))
-         :body
-         (json/parse-string true)))))
+  ([client url {:keys [use-cache?] :or {use-cache? true} :as opts}]
+   (let [url (if (string/starts-with? url "http") url (str base-url url))]
+     (if (and use-cache?
+              (c/cache-hit? url))
+       (c/cache-get url)
+       (do
+         (maybe-refresh-client! client)
+         (let [result (-> (http/get url (merge {:bearer-auth (-> client :token deref :token)}
+                                               opts))
+                          :body
+                          (json/parse-string true))]
+           (when use-cache?
+             (c/cache-set! url result)
+             result)))))))
 
 (defn- request-all
   ([client url] (request client url {}))

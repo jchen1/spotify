@@ -1,7 +1,8 @@
 .cpcache
 .idea
-*.har
 .nrepl-port
-recovered.txt
-tmp/
 .DS_Store
+env.edn
+
+# Spotify result cache
+cache/
