@@ -65,6 +65,10 @@
      :processed {:artists new-processed-artists
                  :albums new-processed-albums}}))
 
+(defn format-diff
+  [diff]
+  (str (if (pos? diff) "+" "-") diff))
+
 (defn run
   []
   (let [client (api/new-client {:id client-id :secret client-secret})
@@ -85,13 +89,24 @@
                                 :albums {}}}
         final-data (loop [data initial-ds
                           step 0]
-                     (println (format "Step %s: %s artists, %s albums in frontier; %s artists, %s albums processed"
-                                      step
-                                      (-> data :frontier :artists count)
-                                      (-> data :frontier :albums count)
-                                      (-> data :processed :artists count)
-                                      (-> data :processed :albums keys count)))
-                     (let [new-data (run-step client data)]
+                     (let [before (time/now)
+                           new-data (run-step client data)
+                           after (time/now)]
+                       (println (format "Step %s/%s (%sms): %s (%s) artists, %s (%s) albums in frontier; %s artists, %s albums processed"
+                                        step
+                                        (int (max (/ (-> new-data :frontier :artists count)
+                                                     (key->step-size :artists))
+                                                  (/ (-> new-data :frontier :albums count)
+                                                     (key->step-size :albums))))
+                                        (time/milliseconds-ago before after)
+                                        (-> new-data :frontier :artists count)
+                                        (format-diff (- (-> new-data :frontier :artists count)
+                                                        (-> data :frontier :artists count)))
+                                        (-> new-data :frontier :albums count)
+                                        (format-diff (- (-> new-data :frontier :albums count)
+                                                        (-> data :frontier :albums count)))
+                                        (-> new-data :processed :artists count)
+                                        (-> new-data :processed :albums keys count)))
                        (if (->> new-data :frontier vals (every? empty?))
                          new-data
                          (recur new-data (inc step)))))

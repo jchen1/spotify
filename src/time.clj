@@ -108,3 +108,65 @@
 (defn now
   []
   (Date.))
+
+(defn milliseconds-ago
+  ([t] (milliseconds-ago t (now)))
+  ([t nowish]
+   (let [t (tc/from-date t)]
+     (- (tc/to-long nowish)
+        (tc/to-long t)))))
+
+(defn seconds-ago
+  ([t] (seconds-ago t (now)))
+  ([t nowish]
+   (quot (milliseconds-ago t nowish) 1000)))
+
+(defn minutes-ago
+  ([t] (minutes-ago t (now)))
+  ([t nowish]
+   (quot (seconds-ago t nowish) 60)))
+
+(defn hours-ago
+  ([t] (hours-ago t (now)))
+  ([t nowish]
+   (let [t (tc/from-date t)]
+     (/ (- (tc/to-long nowish)
+           (tc/to-long t))
+        1000 60 60))))
+
+(defn hours-until
+  ([t]
+   (hours-until t (now)))
+  ([t nowish]
+   (hours-ago nowish t)))
+
+(defn days-ago
+  ([t] (days-ago t (now)))
+  ([t nowish]
+   {:pre [(date? t) (date? nowish)]}
+   (if (< nowish t)
+     (- (days-ago nowish t))
+     (t/in-days (t/interval (tc/to-date-time t)
+                            (tc/to-date-time nowish))))))
+
+(defn days-until
+  ([t]
+   (days-until t (now)))
+  ([t nowish]
+   (days-ago nowish t)))
+
+(defn months-ago
+  ([t] (months-ago t (now)))
+  ([t nowish]
+   (if (< nowish t)
+     (- (months-ago nowish t))
+     (t/in-months (t/interval (tc/to-date-time t)
+                              (tc/to-date-time nowish))))))
+
+(defn years-ago
+  ([t] (years-ago t (now)))
+  ([t nowish]
+   (if (< nowish t)
+     (- (years-ago nowish t))
+     (t/in-years (t/interval (tc/to-date-time t)
+                             (tc/to-date-time nowish))))))
