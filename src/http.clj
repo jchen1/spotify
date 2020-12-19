@@ -8,7 +8,8 @@
   (let [host (try (-> params :url http/parse-url :server-name)
                   (catch Throwable t (str (.getMessage t) "getting host")))]
     (ex-info (format "http <%s> error %d" host (:status result))
-             result)))
+             (merge result
+                    {:url (:url params)}))))
 
 (defn unexceptional-status?
   [status]

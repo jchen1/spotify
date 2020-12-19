@@ -16,6 +16,59 @@
    (and (compare-op op x y)
         (apply compare-op op y args))))
 
+(def default-date-formatters
+  ["M-d-yyyy"
+   "M/d/yyyy"
+   "M-yyyy"
+   "yyyy-M-d"
+   "yyyy-M"
+   "yyyy-MM-dd'T'HH:mm:ssZ"
+   "yyyy-MM-dd HH:mm:ss zzz"
+   "yyyy-MM-dd HH:mm:ss"
+   "EEE MMM dd HH:mm:ss zzz yyyy"
+   "yyyy-MM-dd'T'HH:mm:ss.SSSZ"
+   "M/d/yyyy H:mm:ss"])
+
+(defn formatter
+  [fmt]
+  (when-let [formatter (cond
+                         (string? fmt) (tf/formatter fmt)
+                         (keyword? fmt) (get tf/formatters fmt))]
+    (tf/with-locale formatter Locale/US)))
+
+(defn ->date
+  ([d]
+   (cond
+     (integer? d)
+     (Date. ^long d)
+     :else
+     (->date d default-date-formatters)))
+  ([d allowed-formatters]
+   (let [allowed-formatters (if-not (vector? allowed-formatters)
+                              [allowed-formatters]
+                              allowed-formatters)]
+     (if (string? d)
+       (->> allowed-formatters
+            (keep (fn [fmt] (formatter fmt)))
+            (keep #(try
+                     (tc/to-date (tf/parse % d))
+                     (catch Exception _ nil)))
+            (first))
+       (when (some? d)
+         (tc/to-date d)))))
+  ([d allowed-formatters tz-id]
+     (let [allowed-formatters (if-not (vector? allowed-formatters)
+                                [allowed-formatters]
+                                allowed-formatters)]
+       (->> allowed-formatters
+            (keep (fn [fmt] (tf/with-zone
+                              (formatter fmt)
+                              (t/time-zone-for-id tz-id))))
+            (keep #(try
+                     (tc/to-date (tf/parse % d))
+                     (catch Exception _ nil)))
+            (first)))))
+
 (defn date?
   [d]
   (instance? Date d))
