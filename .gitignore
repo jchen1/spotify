@@ -6,3 +6,4 @@ env.edn
 
 # Spotify result cache
 cache/
+gzip-cache/
