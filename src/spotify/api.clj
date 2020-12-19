@@ -25,20 +25,20 @@
 
 (defn- request
   ([client url] (request client url {}))
-  ([client url {:keys [use-cache?] :or {use-cache? true} :as opts}]
-   (let [url (if (string/starts-with? url "http") url (str base-url url))]
+  ([client url {:keys [use-cache?] :as opts}]
+   (let [use-cache? (not= false use-cache?)
+         url (if (string/starts-with? url "http") url (str base-url url))]
      (if (and use-cache?
               (c/cache-hit? url))
        (c/cache-get url)
        (do
          (maybe-refresh-client! client)
-         (let [result (-> (http/get url (merge {:bearer-auth (-> client :token deref :token)}
-                                               opts))
-                          :body
-                          (json/parse-string true))]
-           (when use-cache?
-             (c/cache-set! url result)
-             result)))))))
+         (let [{:keys [body status]} (http/get url (merge {:bearer-auth (-> client :token deref :token)}
+                                           opts))
+               result (json/parse-string body true)]
+           (when (and use-cache? (http/unexceptional-status? status))
+             (c/cache-set! url result))
+           result))))))
 
 (defn- request-all
   ([client url] (request client url {}))
@@ -56,7 +56,12 @@
 
 (defn category-playlists
   [client category-id]
-  (request-all client (format "/browse/categories/%s/playlists" category-id) {:keyname :playlists}))
+  (try
+    (request-all client (format "/browse/categories/%s/playlists" category-id) {:keyname :playlists})
+    (catch Throwable t
+      (if (= (some-> t ex-data :status) 404)
+        []
+        (throw t)))))
 
 (defn new-client
   [{:keys [id secret]}]

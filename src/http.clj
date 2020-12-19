@@ -10,6 +10,10 @@
     (ex-info (format "http <%s> error %d" host (:status result))
              result)))
 
+(defn unexceptional-status?
+  [status]
+  (http/unexceptional-status? status))
+
 (defn request
   "Wrapper around clj-http. The options are passed in through to clj-http except for
    - retries (default 3) which indicates how many attempts the request should make (cumulatively between bad HTTP responses
