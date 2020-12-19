@@ -67,7 +67,7 @@
 
 (defn format-diff
   [diff]
-  (str (if (pos? diff) "+" "-") diff))
+  (str (if (pos? diff) "+" "") diff))
 
 (defn run
   []
