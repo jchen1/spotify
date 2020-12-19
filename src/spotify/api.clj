@@ -19,14 +19,15 @@
 (defn- maybe-refresh-client!
   [client]
   (cond-> client
-          (or (nil? @(:token client)) (time/< (time/now) (-> client :token deref :expires-at)))
+          (or (nil? @(:token client))
+              (time/< (time/now) (-> client :token deref :expires-at)))
           (refresh))
   client)
 
 (defn- retry-request-fn
   [{:keys [status headers]}]
   (and (= 429 status)
-       (let [retry-after (-> (get headers "retry-after" "0") (Integer.) inc)]
+       (let [retry-after (-> (get headers "retry-after" "0") Integer/parseInt inc)]
          (Thread/sleep (* 1000 retry-after))
          true)))
 

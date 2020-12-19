@@ -3,8 +3,8 @@
             [spotify.api :as api]
             [clojure.set :as set]))
 
+;; put your client id & secret into `env.edn`
 (def env (-> "env.edn" slurp edn/read-string))
-
 (def client-id (env :spotify-client-id))
 (def client-secret (env :spotify-client-secret))
 
@@ -22,7 +22,7 @@
        (into {})))
 
 (def key->step-size
-  {:artists 20
+  {:artists 40
    :albums 200})
 
 (defn take-from-frontier
@@ -31,8 +31,11 @@
 
 (defn run-step
   [client {:keys [frontier processed]}]
-  ;; get albums from an artist
-  ;; get related artists from an artist
+  ;; for each artist in frontier:
+  ;;   get their albums & add to album frontier
+  ;;   get their related artists & add to artist frontier
+  ;; for each album in frontier:
+  ;;   get detailed album information
   (let [artists-to-process (take-from-frontier frontier :artists)
         albums-to-process (take-from-frontier frontier :albums)
 
@@ -121,11 +124,8 @@
                            (map-vals (fn [as]
                                        {:albums (count as)
                                         :tracks (->> as (mapcat :tracks) count)})))]
+    (spit "full.edn" final-data)
     (spit "output.edn" tracks-by-day)))
 
 (comment
-  (run)
-  (let [client (api/new-client {:id client-id :secret client-secret})
-        playlist-id "37i9dQZF1DXcBWIGoYBM5M"
-        tracks (api/playlist-tracks client playlist-id)]
-    (:album (:track (first tracks)))))
+  (run))

@@ -6,6 +6,8 @@
   (:import [java.security MessageDigest]
            [java.math BigInteger]))
 
+;; Simple disk cache. Could gzip contents if we become too space-constrained
+
 (def cache-save-base-dir "cache")
 
 (defn md5 [^String s]
@@ -16,6 +18,7 @@
 (defn- url->cache-key
   [url]
   (let [filename (-> url
+                     ;; not actually nececssary - but i want to preserve my cache!
                      (string/replace (re-pattern base-url) "")
                      (string/replace #"\?" "_QMARK_")
                      (string/replace #"&" "_AMP_")
