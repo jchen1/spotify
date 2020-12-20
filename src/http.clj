@@ -27,7 +27,7 @@
   (let [params (merge {:conn-timeout 60000
                        :socket-timeout 60000}
                       params)
-        retries (or retries 3)
+        retries (or retries 10)
         headers (merge (:headers params)
                        (when bearer-auth {"Authorization" (format "Bearer %s" bearer-auth)}))
         http-params (merge (when debug {:debug true :debug-body true})

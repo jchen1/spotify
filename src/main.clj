@@ -27,7 +27,7 @@
 
 (defn take-from-frontier
   [frontier key]
-  (->> (get frontier key) sort (take (key->step-size key))))
+  (->> (get frontier key) (take (key->step-size key))))
 
 ;; a smarter algorithm would use core/async to ensure we're saturating
 ;; our i/o channels. but that would break our cache
@@ -53,19 +53,20 @@
                     (partition-all 20)
                     (pmapcat #(api/albums client %))
                     (group-by :id)
-                    (map-vals first))
+                    (map-vals #(-> % first (update :tracks count) (select-keys [:release_date :tracks]))))
 
         new-processed-artists (set/union (:artists processed) artists-to-process)
-        new-processed-albums (merge (:albums processed) albums)
+        new-processed-albums (merge (:albums processed)
+                                    albums)
         new-frontier {:artists (set/difference
                                  (set/union
                                    (:artists frontier)
-                                   (set related-artists))
+                                   (apply sorted-set related-artists))
                                  new-processed-artists)
                       :albums (set/difference
                                 (set/union
                                   (:albums frontier)
-                                  (set artist-albums))
+                                  (apply sorted-set artist-albums))
                                 (keys new-processed-albums))}]
     {:frontier new-frontier
      :processed {:artists new-processed-artists
@@ -86,11 +87,11 @@
         initial-ds {:frontier {:artists (->> bootstrapped-tracks
                                              (mapcat :artists)
                                              (map :id)
-                                             set)
+                                             (apply sorted-set))
                                :albums (->> bootstrapped-tracks
                                             (map :album)
                                             (map :id)
-                                            set)}
+                                            (apply sorted-set))}
                     :processed {:artists #{}
                                 :albums {}}}
         final-data (loop [data initial-ds
@@ -126,9 +127,21 @@
                            (group-by (comp time/->date :release_date))
                            (map-vals (fn [as]
                                        {:albums (count as)
-                                        :tracks (->> as (mapcat :tracks) count)})))]
+                                        :tracks (->> as (map :tracks) (apply +))})))]
     (spit "full.edn" final-data)
     (spit "output.edn" tracks-by-day)))
 
 (comment
-  (run))
+  (loop [attempt 0]
+    (println (format "attempt %s" attempt))
+    (let [result
+          (try
+            (run)
+            true
+            (catch Throwable t
+              (println "Failed...")
+              (clojure.pprint/pprint t)
+              false))]
+      (if result
+        (println "Done!!!")
+        (recur (inc attempt))))))
