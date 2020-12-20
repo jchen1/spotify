@@ -113,3 +113,9 @@
    (let [t (tc/from-date t)]
      (- (tc/to-long nowish)
         (tc/to-long t)))))
+
+(comment
+  (format "asdf %s" (time/now))
+  (let [time (time/now)
+        t2 (time/plus-time time {:seconds 1})]
+    (milliseconds-ago time t2)))

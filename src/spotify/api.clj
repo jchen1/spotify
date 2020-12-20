@@ -42,15 +42,25 @@
   client)
 
 (defn- retry-request-fn
-  [{:keys [status headers]}]
-  (and (= 429 status)
-       (let [retry-after (-> (get headers "retry-after" "0") Integer/parseInt inc)]
-         (Thread/sleep (* 1000 retry-after))
-         true)))
+  [{:keys [rate-limited-until]} {:keys [status headers]}]
+  (or
+    (and (>= status 500) (<= status 599))
+    (and (= status 429)
+         (let [retry-after (-> (get headers "retry-after" "0") Integer/parseInt inc)
+               until (time/plus-time (time/now) {:seconds retry-after})]
+           (swap! rate-limited-until (fn [current-rate-limit]
+                                       (if (or (nil? current-rate-limit)
+                                               (time/> until current-rate-limit))
+                                         (do
+                                           (println (format "Rate limited until %s" until))
+                                           until)
+                                         current-rate-limit)))
+           (Thread/sleep (* 1000 retry-after))
+           true))))
 
 (defn- request
   ([client url] (request client url {}))
-  ([client url {:keys [use-cache?] :as opts}]
+  ([{:keys [token rate-limited-until] :as client} url {:keys [use-cache?] :as opts}]
    (let [use-cache? (not= false use-cache?)
          url (if (string/starts-with? url "http") url (str base-url url))
          cache-key (url->cache-key url)]
@@ -59,8 +69,11 @@
        (c/cache-get cache-key)
        (do
          (maybe-refresh-client! client)
-         (let [{:keys [body status]} (http/get url (merge {:bearer-auth (-> client :token deref :token)
-                                                           :retry-request-fn retry-request-fn}
+         (when-let [until @rate-limited-until]
+           (Thread/sleep (max 0 (time/milliseconds-ago (time/now) until)))
+           (compare-and-set! rate-limited-until until nil))
+         (let [{:keys [body status]} (http/get url (merge {:bearer-auth (:token @token)
+                                                           :retry-request-fn (partial retry-request-fn client)}
                                                           opts))
                result (json/parse-string body true)]
            (when (and use-cache? (http/unexceptional-status? status))
@@ -126,4 +139,5 @@
   [{:keys [id secret]}]
   (maybe-refresh-client! {:id id
                           :secret secret
-                          :token (atom nil)}))
+                          :token (atom nil)
+                          :rate-limited-until (atom nil)}))

@@ -1,4 +1,5 @@
 {:deps
  {clj-http {:mvn/version "3.10.3"}
   clj-time {:mvn/version "0.15.2"}
-  cheshire {:mvn/version "5.10.0"}}}
+  cheshire {:mvn/version "5.10.0"}
+  org.clojure/core.async {:mvn/version "1.3.610"}}}
