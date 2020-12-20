@@ -1,4 +1,5 @@
 (ns spotify.cache
+  (:refer-clojure :exclude [key])
   (:require [clojure.edn :as edn]
             [clojure.java.io :as io]
             [clojure.string :as string]
@@ -17,35 +18,24 @@
         raw (.digest algorithm (.getBytes s))]
     (format "%032x" (BigInteger. 1 raw))))
 
-(defn- url->cache-key
-  [url]
-  (let [filename (-> url
-                     ;; not actually nececssary - but i want to preserve my cache!
-                     (string/replace (re-pattern base-url) "")
-                     (string/replace #"\?" "_QMARK_")
-                     (string/replace #"&" "_AMP_")
-                     md5)]
-    (str cache-save-base-dir "/" filename ".edn.gz")))
+(defn- key->full-key
+  [key]
+  (str cache-save-base-dir "/" key))
 
 (defn cache-hit?
-  [url]
-  (let [gzip-key (url->cache-key url)]
-    (-> gzip-key io/file .exists)))
+  [key]
+  (-> key key->full-key io/file .exists))
 
 (defn cache-set!
-  [url result]
-  (let [gzip-key (url->cache-key url)]
-    (io/make-parents gzip-key)
-    (with-open [output (-> gzip-key io/file io/output-stream GZIPOutputStream.)]
+  [key result]
+  (let [key (key->full-key key)]
+    (io/make-parents key)
+    (with-open [output (-> key io/file io/output-stream GZIPOutputStream.)]
       (io/copy (pr-str result) output))))
 
 (defn cache-get
-  [url]
-  (let [gzip-key (url->cache-key url)
-        gzip-file (io/file gzip-key)]
-    (if
-      (.exists gzip-file)
-      (with-open [input (-> gzip-file io/input-stream GZIPInputStream. io/reader PushbackReader.)]
-        (edn/read input))
-      (throw (ex-info "cache miss!" {:url url
-                                     :gzip-key gzip-key})))))
+  [key]
+  (let [f (-> (key->full-key key) io/file)]
+    (when (.exists f)
+      (with-open [input (-> f io/input-stream GZIPInputStream. io/reader PushbackReader.)]
+        (edn/read input)))))

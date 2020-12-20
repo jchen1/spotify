@@ -132,6 +132,17 @@
     (spit "output.edn" tracks-by-day)))
 
 (comment
+  (let [client (api/new-client {:id client-id :secret client-secret})
+        category (-> (api/all-categories client) first)
+        playlist (-> (api/category-playlists client (:id category)) first)
+        tracks (->> (api/playlist-tracks client (:id playlist)) (map :track))
+        album-ids (->> tracks
+                       (map :album)
+                       (map :id)
+                       (apply sorted-set)
+                       (take 5))]
+    (api/albums client album-ids))
+
   (loop [attempt 0]
     (println (format "attempt %s" attempt))
     (let [result

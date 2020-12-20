@@ -4,7 +4,24 @@
             [http :as http]
             [spotify.cache :as c]
             [spotify.common :refer [base-url]]
-            [time :as time]))
+            [time :as time])
+  (:import [java.security MessageDigest]
+           [java.math BigInteger]))
+
+(defn md5 [^String s]
+  (let [algorithm (MessageDigest/getInstance "MD5")
+        raw (.digest algorithm (.getBytes s))]
+    (format "%032x" (BigInteger. 1 raw))))
+
+(defn- url->cache-key
+  [url]
+  (let [filename (-> url
+                     ;; not actually nececssary - but i want to preserve my cache!
+                     (string/replace (re-pattern base-url) "")
+                     (string/replace #"\?" "_QMARK_")
+                     (string/replace #"&" "_AMP_")
+                     md5)]
+    (str filename ".edn.gz")))
 
 (defn- refresh
   [{:keys [id secret] :as client}]
@@ -35,10 +52,11 @@
   ([client url] (request client url {}))
   ([client url {:keys [use-cache?] :as opts}]
    (let [use-cache? (not= false use-cache?)
-         url (if (string/starts-with? url "http") url (str base-url url))]
+         url (if (string/starts-with? url "http") url (str base-url url))
+         cache-key (url->cache-key url)]
      (if (and use-cache?
-              (c/cache-hit? url))
-       (c/cache-get url)
+              (c/cache-hit? cache-key))
+       (c/cache-get cache-key)
        (do
          (maybe-refresh-client! client)
          (let [{:keys [body status]} (http/get url (merge {:bearer-auth (-> client :token deref :token)
@@ -46,7 +64,7 @@
                                                           opts))
                result (json/parse-string body true)]
            (when (and use-cache? (http/unexceptional-status? status))
-             (c/cache-set! url result))
+             (c/cache-set! cache-key result))
            result))))))
 
 (defn- request-all
@@ -87,12 +105,21 @@
   [client artist-id]
   (request-all client (format "/artists/%s/albums" artist-id) {:keypath nil}))
 
+(defn- album->cache-key
+  [album-id]
+  (md5 (format "/albums/%s" album-id)))
+
 (defn albums
   [client album-ids]
   ;; uri-encoded "," is "%2C"
   (if (> (count album-ids) 0)
-    (->> (request client (format "/albums?ids=%s" (string/join "%2C" (sort album-ids))))
-         :albums)
+    (let [{cached true uncached false} (group-by #(-> % album->cache-key c/cache-hit?) album-ids)
+          uncached-result (when (not-empty uncached)
+                            (->> (request client (format "/albums?ids=%s" (string/join "%2C" (sort uncached))))
+                                 :albums))
+          cached-result (->> cached (map #(-> % album->cache-key c/cache-get)))]
+      (->> uncached-result (map #(c/cache-set! (album->cache-key (:id %)) %)) doall)
+      (concat cached-result uncached-result))
     []))
 
 (defn new-client
