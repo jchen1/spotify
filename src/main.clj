@@ -29,6 +29,9 @@
   [frontier key]
   (->> (get frontier key) sort (take (key->step-size key))))
 
+;; a smarter algorithm would use core/async to ensure we're saturating
+;; our i/o channels. but that would break our cache
+;; (which depends on album/artist sort order)
 (defn run-step
   [client {:keys [frontier processed]}]
   ;; for each artist in frontier:
