@@ -1,7 +1,7 @@
 (ns main
   (:require [clojure.edn :as edn]
-            [spotify.api :as api]
-            [clojure.set :as set]))
+            [clojure.set :as set]
+            [spotify.api :as api]))
 
 ;; put your client id & secret into `env.edn`
 (def env (-> "env.edn" slurp edn/read-string))
@@ -106,7 +106,7 @@
                        (println (format "Step %s/%s (%s%%) (%sms): %s (%s) artists, %s (%s) albums in frontier; %s artists, %s albums processed"
                                         step
                                         expected-steps
-                                        (float (/ (Math/round (* 100 100 (float (/ step expected-steps)))) 100))
+                                        (float (/ (Math/round (* 1000 100 (float (/ step expected-steps)))) 1000))
                                         (time/milliseconds-ago before after)
                                         (-> new-data :frontier :artists count)
                                         (format-diff (- (-> new-data :frontier :artists count)
