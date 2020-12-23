@@ -11,12 +11,7 @@
 
 ;; simple GZIP cache. keys are md5 hashes
 
-(def cache-save-base-dir "gzip-cache")
-
-(defn md5 [^String s]
-  (let [algorithm (MessageDigest/getInstance "MD5")
-        raw (.digest algorithm (.getBytes s))]
-    (format "%032x" (BigInteger. 1 raw))))
+(def cache-save-base-dir "/Users/jchen/Documents/Projects/spotify-cache")
 
 (defn- key->full-key
   [key]
@@ -37,5 +32,9 @@
   [key]
   (let [f (-> (key->full-key key) io/file)]
     (when (.exists f)
-      (with-open [input (-> f io/input-stream GZIPInputStream. io/reader PushbackReader.)]
-        (edn/read input)))))
+      (try
+        (with-open [input (-> f io/input-stream GZIPInputStream. io/reader PushbackReader.)]
+          (edn/read input))
+        (catch Throwable t
+          (io/delete-file f true)
+          nil)))))

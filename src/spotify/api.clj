@@ -34,51 +34,54 @@
                              :expires-at (time/plus-time (time/now) {:seconds expires_in})})))
 
 (defn- maybe-refresh-client!
-  [client]
+  [{:keys [token] :as client}]
   (cond-> client
-          (or (nil? @(:token client))
-              (time/< (time/now) (-> client :token deref :expires-at)))
+          (or (nil? @token)
+              (time/< (time/now) (-> @token :expires-at)))
           (refresh))
   client)
 
 (defn- retry-request-fn
-  [{:keys [rate-limited-until]} {:keys [status headers]}]
+  [{:keys [rate-limited-until] :as client} {:keys [status headers]}]
   (or
     (and (>= status 500) (<= status 599))
+    (and (= status 401)
+         (refresh client))
     (and (= status 429)
          (let [retry-after (-> (get headers "retry-after" "0") Integer/parseInt inc)
-               until (time/plus-time (time/now) {:seconds retry-after})]
-           (swap! rate-limited-until (fn [current-rate-limit]
-                                       (if (or (nil? current-rate-limit)
-                                               (time/> until current-rate-limit))
-                                         (do
-                                           (println (format "Rate limited until %s" until))
-                                           until)
-                                         current-rate-limit)))
+               until (time/plus-time (time/now) {:seconds retry-after})
+               [old-limit] (swap-vals! rate-limited-until (fn [old] (if (or (nil? old) (time/> until old)) until old)))]
+           (when (> (time/milliseconds-ago old-limit until) 1000)
+             (println (format "Rate limited until %s" until)))
            (Thread/sleep (* 1000 retry-after))
            true))))
 
 (defn- request
   ([client url] (request client url {}))
-  ([{:keys [token rate-limited-until] :as client} url {:keys [use-cache?] :as opts}]
+  ([{:keys [token rate-limited-until in-flight-requests] :as client} url {:keys [use-cache?] :as opts}]
    (let [use-cache? (not= false use-cache?)
          url (if (string/starts-with? url "http") url (str base-url url))
          cache-key (url->cache-key url)]
-     (if (and use-cache?
-              (c/cache-hit? cache-key))
-       (c/cache-get cache-key)
+     (or
+       (when (and use-cache?
+                  (c/cache-hit? cache-key))
+         (c/cache-get cache-key))
        (do
-         (maybe-refresh-client! client)
          (when-let [until @rate-limited-until]
            (Thread/sleep (max 0 (time/milliseconds-ago (time/now) until)))
            (compare-and-set! rate-limited-until until nil))
-         (let [{:keys [body status]} (http/get url (merge {:bearer-auth (:token @token)
-                                                           :retry-request-fn (partial retry-request-fn client)}
-                                                          opts))
-               result (json/parse-string body true)]
-           (when (and use-cache? (http/unexceptional-status? status))
-             (c/cache-set! cache-key result))
-           result))))))
+         (swap! in-flight-requests inc)
+         (try
+           (maybe-refresh-client! client)
+           (let [{:keys [body status]} (http/get url (merge {:bearer-auth (:token @token)
+                                                             :retry-request-fn (partial retry-request-fn client)}
+                                                            opts))
+                 result (json/parse-string body true)]
+             (when (and use-cache? (http/unexceptional-status? status))
+               (c/cache-set! cache-key result))
+             result)
+           (finally
+             (swap! in-flight-requests dec))))))))
 
 (defn- request-all
   ([client url] (request client url {}))
@@ -122,6 +125,10 @@
   [album-id]
   (md5 (format "/albums/%s" album-id)))
 
+(defn cached-album
+  [album-id]
+  (c/cache-get (album->cache-key album-id)))
+
 (defn albums
   [client album-ids]
   ;; uri-encoded "," is "%2C"
@@ -140,4 +147,5 @@
   (maybe-refresh-client! {:id id
                           :secret secret
                           :token (atom nil)
-                          :rate-limited-until (atom nil)}))
+                          :rate-limited-until (atom nil)
+                          :in-flight-requests (atom 0)}))
