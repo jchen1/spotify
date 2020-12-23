@@ -73,6 +73,11 @@
     (let [frontier {:albums (atom (count (:albums frontier)))
                     :artists (atom (count (:artists frontier)))}
           data (assoc data :frontier frontier)]
+      ;; unify the future logic
+      ;; choose artist or album depending on which channel is more saturated
+      ;;
+
+
       ;; artist go-loop
       (future
         (loop
@@ -109,7 +114,7 @@
                   (try
                     (process-albums client data albums)
                     (finally
-                      (swap! running-albums dec))))))
+                      (swap! running-albums - (count albums)))))))
             (when-not can-run?
               (Thread/sleep 50))
             (if (and (zero? @(:albums frontier)) (empty? @albums-to-process))
