@@ -90,7 +90,7 @@
                           (process-artist client data artist chans))
                         (finally
                           (swap! running-artists dec)))))
-                  (Thread/sleep 1000)))
+                  (Thread/sleep 50)))
               (recur)))))
       ;; album go-loop
       (future
@@ -111,7 +111,7 @@
                     (finally
                       (swap! running-albums dec))))))
             (when-not can-run?
-              (Thread/sleep 1000))
+              (Thread/sleep 50))
             (if (and (zero? @(:albums frontier)) (empty? @albums-to-process))
               (put! done-chan :albums)
               (do
@@ -162,6 +162,7 @@
   ([] (run nil))
   ([_]
    (System/setProperty "clojure.core.async.pool-size" (str num-io-threads))
+   (println "Bootstrapping...")
    (let [client (api/new-client {:id client-id :secret client-secret})
          categories (api/all-categories client)
          playlists-for-categories (pmapcat #(api/category-playlists client (:id %)) categories)
@@ -178,6 +179,7 @@
                                              (apply sorted-set))}
                      :processed {:artists (atom #{})
                                  :albums (atom {})}}
+         _ (println "Done! Starting parallel BFS...")
          final-data (run-async client initial-ds)
          tracks-by-day (->> final-data
                             :albums
