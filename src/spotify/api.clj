@@ -56,12 +56,20 @@
            (Thread/sleep (* 1000 retry-after))
            true))))
 
+(defn- rps-key
+  ([] (rps-key (time/now)))
+  ([t]
+   (mod
+     (->> t (time/t->seconds))
+     60)))
+
 (defn- request
   ([client url] (request client url {}))
-  ([{:keys [token rate-limited-until in-flight-requests] :as client} url {:keys [use-cache?] :as opts}]
+  ([{:keys [token rate-limited-until stats] :as client} url {:keys [use-cache?] :as opts}]
    (let [use-cache? (not= false use-cache?)
          url (if (string/starts-with? url "http") url (str base-url url))
-         cache-key (url->cache-key url)]
+         cache-key (url->cache-key url)
+         {:keys [in-flight-requests network-requests-per-second]} stats]
      (or
        (when (and use-cache?
                   (c/cache-hit? cache-key))
@@ -70,18 +78,30 @@
          (when-let [until @rate-limited-until]
            (Thread/sleep (max 0 (time/milliseconds-ago (time/now) until)))
            (compare-and-set! rate-limited-until until nil))
-         (swap! in-flight-requests inc)
-         (try
-           (maybe-refresh-client! client)
-           (let [{:keys [body status]} (http/get url (merge {:bearer-auth (:token @token)
-                                                             :retry-request-fn (partial retry-request-fn client)}
-                                                            opts))
-                 result (json/parse-string body true)]
-             (when (and use-cache? (http/unexceptional-status? status))
-               (c/cache-set! cache-key result))
-             result)
-           (finally
-             (swap! in-flight-requests dec))))))))
+         (let [now (time/now)]
+           (swap! in-flight-requests inc)
+           (try
+             (swap! network-requests-per-second update (rps-key now) (fn [{:keys [t n] :as v}]
+                                                                       (cond
+                                                                         (not v)
+                                                                         {:t now
+                                                                          :n 1}
+                                                                         (>= (time/milliseconds-ago t now) (* 60 1000))
+                                                                         {:t now
+                                                                          :n 1}
+                                                                         :else
+                                                                         {:t t
+                                                                          :n (inc n)})))
+             (maybe-refresh-client! client)
+             (let [{:keys [body status]} (http/get url (merge {:bearer-auth (:token @token)
+                                                               :retry-request-fn (partial retry-request-fn client)}
+                                                              opts))
+                   result (json/parse-string body true)]
+               (when (and use-cache? (http/unexceptional-status? status))
+                 (c/cache-set! cache-key result))
+               result)
+             (finally
+               (swap! in-flight-requests dec)))))))))
 
 (defn- request-all
   ([client url] (request client url {}))
@@ -142,10 +162,16 @@
       (concat cached-result uncached-result))
     []))
 
+(defn stats
+  [{:keys [stats] :as client}]
+  {:in-flight-requests @(:in-flight-requests stats)
+   :network-requests-per-minute (->> stats :network-requests-per-second deref vals (map :n) (apply +))})
+
 (defn new-client
   [{:keys [id secret]}]
   (maybe-refresh-client! {:id id
                           :secret secret
                           :token (atom nil)
                           :rate-limited-until (atom nil)
-                          :in-flight-requests (atom 0)}))
+                          :stats {:in-flight-requests (atom 0)
+                                  :network-requests-per-second (atom {})}}))

@@ -114,6 +114,10 @@
      (- (tc/to-long nowish)
         (tc/to-long t)))))
 
+(defn t->seconds
+  [t]
+  (-> t inst-ms (/ 1000) long))
+
 (comment
   (format "asdf %s" (time/now))
   (let [time (time/now)

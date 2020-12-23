@@ -1,5 +1,5 @@
 (ns main
-  (:require [clojure.core.async :refer [<! <!! >! >!! chan go go-loop put! timeout]]
+  (:require [clojure.core.async :refer [<! <!! >! >!! chan go go-loop poll! put! timeout]]
             [clojure.edn :as edn]
             [clojure.set :as set]
             [spotify.api :as api]
@@ -28,13 +28,14 @@
                                        (>!! album-chan id)))))]
       (doall (concat related-artists artist-albums))
       (swap! (:artists processed) conj artist)
-      (swap! (:artists frontier) + (count related-artists) -1) ;; we processed one artist!
+      (swap! (:artists frontier) + (dec (count related-artists))) ;; we processed one artist!
       (swap! (:albums frontier) + (count artist-albums)))
-    (swap! (:artists frontier) - 1)))
+    (swap! (:artists frontier) dec)))
 
 (defn process-albums
   [client {:keys [frontier processed] :as data} albums]
   (let [processed-albums (->> albums
+                              (remove #(contains? @(:albums processed) %))
                               (api/albums client)
                               (group-by :id)
                               (map-vals #(-> % first
@@ -44,12 +45,14 @@
     (swap! (:albums frontier) - (count processed-albums))))
 
 (defn process-cached-album
-  [client {:keys [frontier processed] :as data} {:keys [id] :as album}]
-  (let [processed-albums {id (-> album
-                                 (update :tracks count)
-                                 (select-keys [:release_date :tracks]))}]
-    (swap! (:albums processed) merge processed-albums)
-    (swap! (:albums frontier) - 1)))
+  [client {:keys [frontier processed] :as data} album-id]
+  (when-let [{:keys [id] :as album} (when-not (contains? @(:albums processed) album-id)
+                                      (api/cached-album album-id))]
+    (let [processed-albums {id (-> album
+                                   (update :tracks count)
+                                   (select-keys [:release_date :tracks]))}]
+      (swap! (:albums processed) merge processed-albums)
+      (swap! (:albums frontier) dec))))
 
 (def chan-size 2000000)
 
@@ -71,58 +74,61 @@
                     :artists (atom (count (:artists frontier)))}
           data (assoc data :frontier frontier)]
       ;; artist go-loop
-      (go-loop
-        []
-        (if (zero? @(:artists frontier))
-          (>! done-chan :artists)
-          (do
-            (let [in-flight @running-artists]
-              (if-not (>= in-flight (/ num-io-threads 2))
-                (go
-                  (when (compare-and-set! running-artists in-flight (inc in-flight))
-                    (try
-                      (when-let [artist (<! artist-chan)]
-                        (process-artist client data artist chans))
-                      (finally
-                        (swap! running-artists dec)))))
-                (<! (timeout 1000))))
-            (recur))))
-      ;; album go-loop
-      (go-loop
-        [albums-to-process (atom [])]
-        (let [in-flight @running-albums
-              albums @albums-to-process
-              can-run? (>= (/ num-io-threads 2) in-flight)]
-          (when (and
-                  (or (= (count albums) 20)
-                      (zero? @(:albums frontier)))
-                  can-run?)
-            (when (compare-and-set! running-albums in-flight (inc in-flight))
-              (reset! albums-to-process [])
-              (go
-                (try
-                  (process-albums client data albums)
-                  (finally
-                    (swap! running-albums dec))))))
-          (when-not can-run?
-            (<! (timeout 1000)))
-          (if (and (zero? @(:albums frontier)) (empty? @albums-to-process))
-            (>! done-chan :albums)
+      (future
+        (loop
+          []
+          (if (zero? @(:artists frontier))
+            (put! done-chan :artists)
             (do
-              (when-let [new-album (when (and can-run? (< (count @albums-to-process) 20)) (<! album-chan))]
-                (if-let [cached (api/cached-album new-album)]
-                  (process-cached-album client data cached)
-                  (swap! albums-to-process conj new-album)))
-              (recur albums-to-process)))))
-      ;; progress go-loop
+              (let [in-flight @running-artists]
+                (if-not (or (>= in-flight (/ num-io-threads 2))
+                            #_(> 1500000 @(:albums frontier)))
+                  (when (compare-and-set! running-artists in-flight (inc in-flight))
+                    (go
+                      (try
+                        (when-let [artist (<! artist-chan)]
+                          (process-artist client data artist chans))
+                        (finally
+                          (swap! running-artists dec)))))
+                  (Thread/sleep 1000)))
+              (recur)))))
+      ;; album go-loop
+      (future
+        (loop
+          [albums-to-process (atom [])]
+          (let [in-flight @running-albums
+                albums @albums-to-process
+                can-run? (>= (/ num-io-threads 2) in-flight)]
+            (when (and
+                    (or (= (count albums) 20)
+                        (zero? @(:albums frontier)))
+                    can-run?)
+              (when (compare-and-set! running-albums in-flight (inc in-flight))
+                (reset! albums-to-process [])
+                (go
+                  (try
+                    (process-albums client data albums)
+                    (finally
+                      (swap! running-albums dec))))))
+            (when-not can-run?
+              (Thread/sleep 1000))
+            (if (and (zero? @(:albums frontier)) (empty? @albums-to-process))
+              (put! done-chan :albums)
+              (do
+                (when-let [new-album (when (and can-run? (< (count @albums-to-process) 20)) (poll! album-chan))]
+                  (when-not (process-cached-album client data new-album)
+                    (swap! albums-to-process conj new-album)))
+                (recur albums-to-process))))))
+      ;; progress thread
       (future
         (loop
           [step 0
            last {:artists 0 :albums 0}]
           (Thread/sleep 5000)
           (let [num-processed {:artists (count @(:artists processed))
-                               :albums (count @(:albums processed))}]
-            (println (format "%s: \tprocessed %s (%s total) artists (%s/m), %s (%s total) albums (%s/m) (%s artists, %s albums in flight) (%s in flight requests)"
+                               :albums (count @(:albums processed))}
+                {:keys [in-flight-requests network-requests-per-minute]} (api/stats client)]
+            (println (format "%s: \tprocessed: %s (%s total) artists (%s/m), %s (%s total) albums (%s/m)"
                              step
                              (- (:artists num-processed)
                                 (:artists last))
@@ -135,11 +141,13 @@
                              (:albums num-processed)
                              (* (- (:albums num-processed)
                                    (:albums last))
-                                12)
+                                12)))
+            (println (format "\tin flight: %s artists, %s albums, %s network requests (%s network requests per minute)"
                              @running-artists
                              @running-albums
-                             @(:in-flight-requests client)))
-            (println (format "\t\t%s artists remaining, %s albums remaining"
+                             in-flight-requests
+                             network-requests-per-minute))
+            (println (format "\tremaining: %s artists, %s albums"
                              @(:artists frontier)
                              @(:albums frontier)))
             (when-not (and (zero? @(:artists frontier))
@@ -192,7 +200,8 @@
                        (map :id)
                        (apply sorted-set)
                        (take 5))]
-    (api/albums client album-ids))
+    (api/albums client ["11123433"])
+    (api/stats client))
 
   (run)
 
