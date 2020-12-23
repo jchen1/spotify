@@ -164,8 +164,15 @@
 
 (defn stats
   [{:keys [stats] :as client}]
-  {:in-flight-requests @(:in-flight-requests stats)
-   :network-requests-per-minute (->> stats :network-requests-per-second deref vals (map :n) (apply +))})
+  (let [network-requests-per-second (swap! (:network-requests-per-second stats)
+                                           (fn [old]
+                                             (let [now (time/now)]
+                                               (->> old
+                                                    (filter (fn [[_ {:keys [t]}]]
+                                                              (>= (time/milliseconds-ago t now) (* 60 1000))))
+                                                    (into {})))))]
+    {:in-flight-requests @(:in-flight-requests stats)
+     :network-requests-per-minute (->> network-requests-per-second vals (map :n) (apply +))}))
 
 (defn new-client
   [{:keys [id secret]}]
