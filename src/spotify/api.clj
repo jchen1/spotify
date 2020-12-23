@@ -168,7 +168,7 @@
                                            (fn [old]
                                              (let [now (time/now)]
                                                (->> old
-                                                    (filter (fn [[_ {:keys [t]}]]
+                                                    (remove (fn [[_ {:keys [t]}]]
                                                               (>= (time/milliseconds-ago t now) (* 60 1000))))
                                                     (into {})))))]
     {:in-flight-requests @(:in-flight-requests stats)
