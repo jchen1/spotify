@@ -51,7 +51,8 @@
          (let [retry-after (-> (get headers "retry-after" "0") Integer/parseInt inc)
                until (time/plus-time (time/now) {:seconds retry-after})
                [old-limit] (swap-vals! rate-limited-until (fn [old] (if (or (nil? old) (time/> until old)) until old)))]
-           (when (> (time/milliseconds-ago old-limit until) 1000)
+           (when (or (nil? old-limit)
+                     (> (time/milliseconds-ago old-limit until) 1000))
              (println (format "Rate limited until %s" until)))
            (Thread/sleep (* 1000 retry-after))
            true))))

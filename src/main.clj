@@ -42,7 +42,7 @@
                                              (update :tracks count)
                                              (select-keys [:release_date :tracks]))))]
     (swap! (:albums processed) merge processed-albums)
-    (swap! (:albums frontier) - (count processed-albums))))
+    (swap! (:albums frontier) - (count albums))))
 
 (defn process-cached-album
   [client {:keys [frontier processed] :as data} album-id]
@@ -54,13 +54,15 @@
       (swap! (:albums processed) merge processed-albums)
       (swap! (:albums frontier) dec))))
 
-(def chan-size 2000000)
+(def key->chan-size
+  {:artists 20000000
+   :albums 2000000})
 
 (defn run-async
   [client {:keys [frontier processed] :as data}]
   (let [{:keys [artist-chan album-chan done-chan] :as chans}
-        {:artist-chan (chan chan-size)
-         :album-chan (chan chan-size)
+        {:artist-chan (chan (key->chan-size :artists))
+         :album-chan (chan (key->chan-size :albums))
          :done-chan (chan 2)}
         running-artists (atom 0)
         running-albums (atom 0)]
@@ -114,7 +116,7 @@
                   (try
                     (process-albums client data albums)
                     (finally
-                      (swap! running-albums - (count albums)))))))
+                      (swap! running-albums dec))))))
             (when-not can-run?
               (Thread/sleep 50))
             (if (and (zero? @(:albums frontier)) (empty? @albums-to-process))
