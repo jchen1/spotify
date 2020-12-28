@@ -119,7 +119,9 @@
                       (swap! running-albums dec))))))
             (when-not can-run?
               (Thread/sleep 50))
-            (if (and (zero? @(:albums frontier)) (empty? @albums-to-process))
+            (if (and (zero? @(:albums frontier))
+                     (zero? @(:artists frontier))
+                     (empty? @albums-to-process))
               (put! done-chan :albums)
               (do
                 (when-let [new-album (when (and can-run? (< (count @albums-to-process) 20)) (poll! album-chan))]
@@ -178,12 +180,10 @@
                                   (map :track))
          initial-ds {:frontier {:artists (->> bootstrapped-tracks
                                               (mapcat :artists)
-                                              (map :id)
-                                              (apply sorted-set))
+                                              (map :id))
                                 :albums (->> bootstrapped-tracks
                                              (map :album)
-                                             (map :id)
-                                             (apply sorted-set))}
+                                             (map :id))}
                      :processed {:artists (atom #{})
                                  :albums (atom {})}}
          _ (println "Done! Starting parallel BFS...")
