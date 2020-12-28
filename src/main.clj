@@ -10,7 +10,7 @@
 (def client-id (env :spotify-client-id))
 (def client-secret (env :spotify-client-secret))
 
-(def num-io-threads 50)
+(def num-io-threads 200)
 
 ;; runs in a go block
 (defn process-artist
@@ -56,7 +56,7 @@
 
 (def key->chan-size
   {:artists 20000000
-   :albums 2000000})
+   :albums 20000000})
 
 (defn run-async
   [client {:keys [frontier processed] :as data}]
@@ -137,17 +137,17 @@
           (let [num-processed {:artists (count @(:artists processed))
                                :albums (count @(:albums processed))}
                 {:keys [in-flight-requests network-requests-per-minute]} (api/stats client)]
-            (println (format "%s: \tprocessed: %s (%s total) artists (%s/m), %s (%s total) albums (%s/m)"
+            (println (format "%s: \tprocessed: %s (+%s) artists (%s/m), %s (+%s) albums (%s/m)"
                              step
+                             (:artists num-processed)
                              (- (:artists num-processed)
                                 (:artists last))
-                             (:artists num-processed)
                              (* (- (:artists num-processed)
                                    (:artists last))
                                 12)
+                             (:albums num-processed)
                              (- (:albums num-processed)
                                 (:albums last))
-                             (:albums num-processed)
                              (* (- (:albums num-processed)
                                    (:albums last))
                                 12)))
