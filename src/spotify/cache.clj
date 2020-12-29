@@ -2,11 +2,8 @@
   (:refer-clojure :exclude [key])
   (:require [clojure.edn :as edn]
             [clojure.java.io :as io]
-            [clojure.string :as string]
             [spotify.common :refer [base-url]])
-  (:import [java.security MessageDigest]
-           [java.io PushbackReader]
-           [java.math BigInteger]
+  (:import [java.io PushbackReader]
            [java.util.zip GZIPInputStream GZIPOutputStream]))
 
 ;; simple GZIP cache. keys are md5 hashes
@@ -29,12 +26,14 @@
       (io/copy (pr-str result) output))))
 
 (defn cache-get
-  [key]
-  (let [f (-> (key->full-key key) io/file)]
-    (when (.exists f)
-      (try
-        (with-open [input (-> f io/input-stream GZIPInputStream. io/reader PushbackReader.)]
-          (edn/read input))
-        (catch Throwable t
-          (io/delete-file f true)
-          nil)))))
+  ([key] (cache-get key false))
+  ([key delete-on-fail?]
+   (let [f (-> (key->full-key key) io/file)]
+     (when (.exists f)
+       (try
+         (with-open [input (-> f io/input-stream GZIPInputStream. io/reader PushbackReader.)]
+           (edn/read input))
+         (catch Throwable t
+           (when delete-on-fail?
+             (io/delete-file f true))
+           nil))))))

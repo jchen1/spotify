@@ -20,6 +20,7 @@
    "M-yyyy"
    "yyyy-M-d"
    "yyyy-M"
+   "yyyy"
    "yyyy-MM-dd'T'HH:mm:ssZ"
    "yyyy-MM-dd HH:mm:ss zzz"
    "yyyy-MM-dd HH:mm:ss"
@@ -119,6 +120,7 @@
   (-> t inst-ms (/ 1000) long))
 
 (comment
+  (t->seconds (time/->date "1983"))
   (format "asdf %s" (time/now))
   (let [time (time/now)
         t2 (time/plus-time time {:seconds 1})]

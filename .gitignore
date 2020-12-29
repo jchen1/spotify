@@ -7,3 +7,5 @@ env.edn
 # Spotify result cache
 gzip-cache/
 tmp/
+spotify.sqlite
+listing.txt
